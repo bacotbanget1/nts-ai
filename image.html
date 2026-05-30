@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Image Generator — Aether AI</title>
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+<div class="app">
+  <div class="topbar">
+    <a href="index.html">←</a>
+    <h1>🎨 Image Generator</h1>
+    <span class="spacer"></span>
+  </div>
+  <div class="chat-wrap">
+    <div class="gen-form">
+      <textarea id="prompt" placeholder="Deskripsikan gambar yang kamu mau... (bahasa Inggris hasil biasanya lebih bagus)"></textarea>
+      <button id="go">✨ Generate</button>
+    </div>
+    <div class="gen-result" id="result"></div>
+  </div>
+</div>
+<script src="config.js"></script>
+<script src="app.js"></script>
+<script>
+const { apiImage } = window.AI;
+const goBtn = document.getElementById("go");
+const promptEl = document.getElementById("prompt");
+const result = document.getElementById("result");
+goBtn.onclick = async () => {
+  const p = promptEl.value.trim();
+  if (!p) return;
+  goBtn.disabled = true; goBtn.textContent = "⏳ Generating... (FLUX butuh ~15-30s)";
+  result.innerHTML = "";
+  try {
+    const url = await apiImage(p);
+    const im = document.createElement("img"); im.src = url;
+    const a = document.createElement("a"); a.href = url; a.download = "ai-image.png"; a.textContent = "⬇️ Download";
+    a.style.cssText = "display:inline-block;margin-top:10px;color:var(--accent);text-decoration:none;";
+    result.appendChild(im); result.appendChild(a);
+  } catch (e) {
+    const d = document.createElement("div"); d.className = "error"; d.textContent = "❌ " + e.message;
+    result.appendChild(d);
+  } finally {
+    goBtn.disabled = false; goBtn.textContent = "✨ Generate";
+  }
+};
+</script>
+</body>
+</html>

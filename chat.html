@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Chat NTS AI</title>
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+<div class="app">
+  <div class="topbar">
+    <a href="index.html">←</a>
+    <h1>💬 Chat</h1>
+    <span class="spacer"></span>
+  </div>
+  <div class="chat-wrap">
+    <div class="chat-toolbar">
+      <span class="label">Model:</span>
+      <select id="model"></select>
+      <label class="auto"><input type="checkbox" id="autoswitch" checked /> Auto-switch (image/vision)</label>
+      <button id="clear" title="Clear chat">🗑️</button>
+    </div>
+    <div class="messages" id="messages"></div>
+    <div id="attach" class="attach-preview" style="display:none;"></div>
+    <div class="composer">
+      <label class="file-btn" title="Attach image">
+        📎
+        <input type="file" id="file" accept="image/*" />
+      </label>
+      <textarea id="input" placeholder="Ketik pesan... (Shift+Enter untuk newline)" rows="1"></textarea>
+      <button id="send">Kirim</button>
+    </div>
+  </div>
+</div>
+<script src="config.js"></script>
+<script src="app.js"></script>
+<script>
+const { apiChat, apiImage, apiRoute, fileToDataUrl, escapeHtml } = window.AI;
+const messagesEl = document.getElementById("messages");
+const input = document.getElementById("input");
+const sendBtn = document.getElementById("send");
+const modelSel = document.getElementById("model");
+const autoSwitch = document.getElementById("autoswitch");
+const fileInput = document.getElementById("file");
+const attachEl = document.getElementById("attach");
+const clearBtn = document.getElementById("clear");
+
+let attached = null; // {dataUrl, name}
+let history = []; // chat messages for context (text only)
+
+// Populate models
+for (const m of window.AI_CONFIG.CHAT_MODELS) {
+  const o = document.createElement("option");
+  o.value = m.id; o.textContent = m.label;
+  modelSel.appendChild(o);
+}
+
+function addMsg(role, content, opts = {}) {
+  const div = document.createElement("div");
+  div.className = `msg ${role}`;
+  if (opts.badge) {
+    const b = document.createElement("div");
+    b.className = "badge"; b.textContent = opts.badge;
+    div.appendChild(b);
+  }
+  if (opts.html) div.insertAdjacentHTML("beforeend", opts.html);
+  else div.appendChild(document.createTextNode(content));
+  if (opts.imageUrl) {
+    const im = document.createElement("img"); im.src = opts.imageUrl; div.appendChild(im);
+  }
+  messagesEl.appendChild(div);
+  messagesEl.scrollTop = messagesEl.scrollHeight;
+  return div;
+}
+
+function addTyping() {
+  const d = document.createElement("div");
+  d.className = "msg ai";
+  d.innerHTML = '<span class="typing"><span></span><span></span><span></span></span>';
+  messagesEl.appendChild(d);
+  messagesEl.scrollTop = messagesEl.scrollHeight;
+  return d;
+}
+
+fileInput.addEventListener("change", async () => {
+  const f = fileInput.files?.[0];
+  if (!f) return;
+  const url = await fileToDataUrl(f);
+  attached = { dataUrl: url, name: f.name };
+  renderAttach();
+});
+
+function renderAttach() {
+  if (!attached) { attachEl.style.display = "none"; attachEl.innerHTML = ""; return; }
+  attachEl.style.display = "flex";
+  attachEl.innerHTML = `<img src="${attached.dataUrl}" /> <span>${escapeHtml(attached.name)}</span>`;
+  const btn = document.createElement("button");
+  btn.textContent = "✕"; btn.onclick = () => { attached = null; fileInput.value = ""; renderAttach(); };
+  attachEl.appendChild(btn);
+}
+
+clearBtn.onclick = () => { history = []; messagesEl.innerHTML = ""; };
+
+input.addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); }
+});
+input.addEventListener("input", () => {
+  input.style.height = "auto";
+  input.style.height = Math.min(140, input.scrollHeight) + "px";
+});
+
+sendBtn.onclick = send;
+
+async function send() {
+  const text = input.value.trim();
+  if (!text && !attached) return;
+  sendBtn.disabled = true;
+
+  // Show user message
+  const userImg = attached?.dataUrl;
+  addMsg("user", text, { imageUrl: userImg });
+  input.value = ""; input.style.height = "auto";
+
+  // Decide intent
+  let intent = "chat";
+  if (attached) intent = "vision";
+  else if (autoSwitch.checked) {
+    const r = await apiRoute(text, false).catch(() => ({ intent: "chat" }));
+    intent = r.intent;
+  }
+
+  const typing = addTyping();
+
+  try {
+    if (intent === "image") {
+      typing.remove();
+      const placeholder = addMsg("ai", "🎨 Lagi bikin gambar...", { badge: "Auto-switch → Image" });
+      try {
+        const url = await apiImage(text);
+        placeholder.textContent = "";
+        const b = document.createElement("div"); b.className = "badge"; b.textContent = "FLUX.1-dev";
+        placeholder.appendChild(b);
+        placeholder.appendChild(document.createTextNode("Gambar siap ✨"));
+        const im = document.createElement("img"); im.src = url; placeholder.appendChild(im);
+      } catch (e) {
+        placeholder.textContent = "❌ " + e.message;
+      }
+    } else if (intent === "vision") {
+      // Vision call with attached image
+      const visionMsgs = [
+        ...history,
+        {
+          role: "user",
+          content: [
+            { type: "text", text: text || "Apa yang ada di gambar ini?" },
+            ...(attached ? [{ type: "image_url", image_url: { url: attached.dataUrl } }] : []),
+          ],
+        },
+      ];
+      const res = await apiChat({ messages: visionMsgs, vision: true });
+      typing.remove();
+      addMsg("ai", res.content, { badge: "Vision" });
+      history.push({ role: "user", content: text });
+      history.push({ role: "assistant", content: res.content });
+      attached = null; fileInput.value = ""; renderAttach();
+    } else {
+      const msgs = [
+        { role: "system", content: "You are Aether, a friendly bilingual AI assistant. Reply in the user's language. Be concise and helpful." },
+        ...history,
+        { role: "user", content: text },
+      ];
+      const res = await apiChat({ messages: msgs, model: modelSel.value });
+      typing.remove();
+      addMsg("ai", res.content);
+      history.push({ role: "user", content: text });
+      history.push({ role: "assistant", content: res.content });
+      if (history.length > 20) history = history.slice(-20);
+    }
+  } catch (e) {
+    typing.remove();
+    addMsg("ai", "❌ Error: " + e.message);
+  } finally {
+    sendBtn.disabled = false;
+    input.focus();
+  }
+}
+
+addMsg("system", "Mulai ngobrol! Coba: 'buatkan gambar kucing astronot' atau attach foto untuk dianalisis.");
+input.focus();
+</script>
+</body>
+</html>

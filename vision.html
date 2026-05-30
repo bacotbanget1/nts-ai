@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Image Analysis — Aether AI</title>
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+<div class="app">
+  <div class="topbar">
+    <a href="index.html">←</a>
+    <h1>🔍 Image Analysis</h1>
+    <span class="spacer"></span>
+  </div>
+  <div class="chat-wrap">
+    <div class="gen-form">
+      <label class="file-upload-box" id="dropbox">
+        <input type="file" id="file" accept="image/*" style="display:none" />
+        <span id="dropText">📤 Klik untuk upload gambar</span>
+      </label>
+      <textarea id="prompt" placeholder="Tanya apa aja tentang gambar... (default: 'Apa yang ada di gambar ini?')"></textarea>
+      <button id="go">🔎 Analisis</button>
+    </div>
+    <div class="gen-result" id="result"></div>
+  </div>
+</div>
+<script src="config.js"></script>
+<script src="app.js"></script>
+<script>
+const { apiChat, fileToDataUrl } = window.AI;
+let dataUrl = null;
+const fileInput = document.getElementById("file");
+const dropbox = document.getElementById("dropbox");
+const dropText = document.getElementById("dropText");
+const goBtn = document.getElementById("go");
+const result = document.getElementById("result");
+dropbox.onclick = () => fileInput.click();
+fileInput.onchange = async () => {
+  const f = fileInput.files?.[0]; if (!f) return;
+  dataUrl = await fileToDataUrl(f);
+  dropText.textContent = "";
+  dropbox.classList.add("has-file");
+  const im = document.createElement("img"); im.src = dataUrl;
+  dropbox.innerHTML = ""; dropbox.appendChild(fileInput); dropbox.appendChild(im);
+};
+
+goBtn.onclick = async () => {
+  if (!dataUrl) { alert("Upload gambar dulu"); return; }
+  const q = document.getElementById("prompt").value.trim() || "Apa yang ada di gambar ini? Jelaskan dengan detail.";
+  goBtn.disabled = true; goBtn.textContent = "⏳ Menganalisis...";
+  result.innerHTML = "";
+  try {
+    const res = await apiChat({
+      vision: true,
+      messages: [{
+        role: "user",
+        content: [
+          { type: "text", text: q },
+          { type: "image_url", image_url: { url: dataUrl } },
+        ],
+      }],
+    });
+    const div = document.createElement("div");
+    div.style.cssText = "background:var(--ai);padding:16px;border-radius:10px;line-height:1.6;white-space:pre-wrap;";
+    div.textContent = res.content;
+    result.appendChild(div);
+  } catch (e) {
+    const d = document.createElement("div"); d.className = "error"; d.textContent = "❌ " + e.message;
+    result.appendChild(d);
+  } finally {
+    goBtn.disabled = false; goBtn.textContent = "🔎 Analisis";
+  }
+};
+</script>
+</body>
+</html>
